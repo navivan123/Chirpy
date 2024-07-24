@@ -6,11 +6,17 @@ import (
 )
 
 func main() {
+	const srcRoot = "."
+	const srcPort = "8080"
+
 	serveMux := http.NewServeMux()
-	httpServ := http.Server{Handler: serveMux, Addr: "localhost:8080"}
-	
+	serveMux.Handle("/", http.FileServer(http.Dir(srcRoot)))
+	httpServ := http.Server{
+		Handler: serveMux, 
+		Addr: ":" + srcPort,
+	}
+
+	log.Printf("Serving index.html on port %s\n", srcPort)
+	log.Fatal(httpServ.ListenAndServe())
 	// Start the server and check for errors
-    	if err := httpServ.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-        	log.Fatalf("ListenAndServe failed: %v", err)
-    	}
 }
