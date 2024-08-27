@@ -3,9 +3,10 @@ package main
 import (
         "net/http"
         "encoding/json"
-	"errors"
 	"strings"
         "sort"
+        "strconv"
+        //"fmt"
 )
 
 type Chirp struct {
@@ -13,6 +14,36 @@ type Chirp struct {
 	Body string `json:"body"`
 }
 
+type User struct {
+        ID    int    `json:"id"`
+        Email string `json:"email"`
+}
+
+func (cfg *apiConfig) handleChirpGet(w http.ResponseWriter, r *http.Request) {
+        dbChirps, err := cfg.DB.GetChirps()
+        if err != nil {
+	        handleChirpError(w, http.StatusInternalServerError, "Error while fetching Chirps from DB")
+                return
+        }
+        id, err := strconv.Atoi(r.PathValue("id"))
+        if err != nil {
+	        handleChirpError(w, http.StatusInternalServerError, "Error while converting id to string")
+                return
+        }
+        chirp := Chirp{}
+	for _, dbChirp := range dbChirps {
+	        if dbChirp.ID == id {
+                        chirp = Chirp{ ID: dbChirp.ID, Body: dbChirp.Body,}
+                        break
+                }
+        }
+        if chirp == (Chirp{}) {
+                handleChirpError(w, http.StatusNotFound, "Error: Chirp id not found!")
+                return
+        }
+
+        handleChirpJSON(w, http.StatusOK, chirp)
+}
 
 func (cfg *apiConfig) handleChirpsGet(w http.ResponseWriter, r *http.Request) {
         dbChirps, err := cfg.DB.GetChirps()
@@ -36,7 +67,6 @@ func (cfg *apiConfig) handleChirpsGet(w http.ResponseWriter, r *http.Request) {
         handleChirpJSON(w, http.StatusOK, chirps)
 }
 
-
 func filterChirp(msg string) string {
 	words   := strings.Split(msg, " ")
 
@@ -49,7 +79,7 @@ func filterChirp(msg string) string {
 	return strings.Join(words, " ")
 }
 
-func (cfg *apiConfig) handleChirpPost(w http.ResponseWriter, r *http.Request){
+func (cfg *apiConfig) handleChirpPost(w http.ResponseWriter, r *http.Request) {
     
 	type parameters struct {
 		Body string `json:"body"`
@@ -70,12 +100,38 @@ func (cfg *apiConfig) handleChirpPost(w http.ResponseWriter, r *http.Request){
 
         chirp, err := cfg.DB.CreateChirp(filterChirp(params.Body))
         if err != nil {
-	    handleChirpError(w, http.StatusInternalServerError, "Couldn't decode Chirp paramters")
+	    handleChirpError(w, http.StatusInternalServerError, "Couldn't create Chirp on DB")
             return    
         }
 
-        handleChirpJSON(w, http.StatusOK, Chirp{ ID: chirp.ID, Body: chirp.Body })
+        handleChirpJSON(w, http.StatusCreated, Chirp{ ID: chirp.ID, Body: chirp.Body })
 }
+
+func (cfg *apiConfig) handleUserPost(w http.ResponseWriter, r *http.Request) {
+    
+	type parameters struct {
+		Email string `json:"email"`
+	}
+
+	decoder := json.NewDecoder(r.Body)
+	params := parameters{}
+	err := decoder.Decode(&params)
+	if err != nil {
+	    handleChirpError(w, http.StatusInternalServerError, "Couldn't decode User paramters")
+	    return
+	}
+	
+        user, err := cfg.DB.CreateUser(params.Email)
+        if err != nil {
+	    handleChirpError(w, http.StatusInternalServerError, "Couldn't create User on DB")
+            return    
+        }
+
+        handleChirpJSON(w, http.StatusCreated, User{ ID: user.ID, Email: user.Email })
+}
+
+
+
 
 func handleChirpError(w http.ResponseWriter, code int, msg string) {
     type errVals struct {

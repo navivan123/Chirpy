@@ -4,15 +4,18 @@ import (
         "os"
         "errors"
         "sync"
+        "encoding/json"
+        //"fmt"
 )
 
 type DB struct {
 	path string
-	mux  *sync.RWMutex
+	mu  *sync.RWMutex
 }
 
 type DBStructure struct {
 	Chirps map[int]Chirp `json:"chirps"`
+        Users map[int]User `json:"users"`
 }
 
 type Chirp struct {
@@ -20,10 +23,15 @@ type Chirp struct {
         Body string `json:"body"`
 }
 
+type User struct {
+        ID    int    `json:"id"`
+        Email string `json:"email"`
+}
+
 // NewDB creates a new database connection
 // and creates the database file if it doesn't exist
 func NewDB(path string) (*DB, error) {
-        db := &DB{path: path, mux: &sync.Mutex{},}
+        db := &DB{path: path, mu: &sync.RWMutex{},}
         err := db.ensureDB()
         return db, err
 }
@@ -46,6 +54,28 @@ func (db *DB) CreateChirp(body string) (Chirp, error) {
         }
 
         return chirp, nil
+
+}
+
+// CreateChirp creates a new chirp and saves it to disk
+func (db *DB) CreateUser(email string) (User, error) {
+        dbStructure, err := db.loadDB()
+        if err != nil {
+                return User{}, err
+        }
+
+        id := len(dbStructure.Users) + 1
+        user := User{ ID: id, Email: email }
+
+        dbStructure.Users[id] = user
+
+        err = db.writeDB(dbStructure)
+        if err != nil {
+                return User{}, err
+        }
+
+        return user, nil
+
 }
 
 // GetChirps returns all chirps in the database
@@ -65,17 +95,15 @@ func (db *DB) GetChirps() ([]Chirp, error) {
 }
 
 func (db *DB) createDB() error {
-        dbStructure := DBStructure{ Chirps: map[int]Chirp{}, }
+        dbStructure := DBStructure{ Chirps: map[int]Chirp{}, Users: map[int]User{}}
         return db.writeDB(dbStructure)
 }
 
 // ensureDB creates a new database file if it doesn't exist
 func (db *DB) ensureDB() error {
         _, err := os.ReadFile(db.path)
-        if err != nil {
-                if errors.Is(err, os.ErrNotExist) {
-                        return db.createDB()
-                }
+        if errors.Is(err, os.ErrNotExist) {
+                return db.createDB()
         }
         return err
 }
@@ -87,12 +115,12 @@ func (db *DB) loadDB() (DBStructure, error) {
 
         dbStructure := DBStructure{}
 
-        data, err := os.ReadFile()
+        data, err := os.ReadFile(db.path)
         if errors.Is(err, os.ErrNotExist) {
                 return dbStructure, err
         }
-        
-        err = json.Unmarshal(data, &DBStructure)
+
+        err = json.Unmarshal(data, &dbStructure)
         if err != nil {
                 return dbStructure, err
         }
@@ -110,7 +138,7 @@ func (db *DB) writeDB(dbStructure DBStructure) error {
                 return err
         }
 
-        err = os.WriteFile(db.path, 0600)
+        err = os.WriteFile(db.path, data, 0600)
         if err != nil {
                 return err
         }
