@@ -4,10 +4,14 @@ import (
 	"net/http"
 	"log"
 	"fmt"
+	"encoding/json"
+	"strings"
+        "github.com/navivan123/Chirpy/internal/database"
 )
 
 type apiConfig struct {
 	fileserverHits int
+        DB             *database.DB
 }
 
 func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
@@ -31,11 +35,79 @@ func (cfg *apiConfig) handleResets(w http.ResponseWriter, req *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
+func filterChirp(msg string) string {
+	words   := strings.Split(msg, " ")
+
+	for i, word := range(words) {
+		if strings.ToLower(word) == "kerfuffle" || strings.ToLower(word) == "sharbert" || strings.ToLower(word) == "fornax" {
+			words[i] = "****"
+		}
+	}
+
+	return strings.Join(words, " ")
+}
+
+func handleChirp(w http.ResponseWriter, r *http.Request){
+    
+	type parameters struct {
+		Body string `json:"body"`
+	}
+    	type returnVals struct {
+	    id int `json:id`
+	    Cleaned string `json:"body"`
+    	}
+
+	decoder := json.NewDecoder(r.Body)
+	params := parameters{}
+	err := decoder.Decode(&params)
+	if err != nil {
+	    handleChirpError(w, http.StatusInternalServerError, "Something went wrong")
+	    return
+	}
+	
+	if len(params.Body) > 140 {
+	    handleChirpError(w, http.StatusBadRequest, "Chirp is too long")
+	    return
+	}
+
+        response := { id: id, Cleaned: filterChirp(params.Body) }
+        id++
+
+        handleChirpJSON(w, http.StatusOK, response)
+}
+
+func handleChirpError(w http.ResponseWriter, code int, msg string) {
+    type errVals struct {
+         Err string `json:"error"`
+    }
+    
+    handleChirpJSON(w, code, errVals{ Err: msg })
+}
+
+func handleChirpJSON(w http.ResponseWriter, code int, payload interface{}) {
+    w.Header().Set("Content-Type", "application/json")
+    dat, err := json.Marshal(payload)
+    
+    if err != nil {
+	w.WriteHeader(500)
+	return
+    }
+
+    w.WriteHeader(code)
+    w.Write(dat)
+}
+
+
 func main() {
 	const srcRoot = "."
 	const srcPort = "8080"
 
-	apiCfg := apiConfig{}
+        db, err := database.NewDB("database.json")
+        if err != nil {
+                log.Fatal(err)
+        }
+
+        apiCfg := apiConfig{ fileserverHits: 0, DB: db,}
 
 	http.StripPrefix("/app", http.FileServer(http.Dir(srcRoot)))
 
@@ -52,6 +124,9 @@ func main() {
 		w.Write([]byte("OK"))
 
 	})
+
+	serveMux.HandleFunc("POST /api/chirps", apiCfg.handleChirpPost)
+	serveMux.HandleFunc("GET /api/chirps", apiCfg.handleChirpsGet)
 
 	httpServ := http.Server{
 			Handler: serveMux, 
